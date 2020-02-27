@@ -26,5 +26,10 @@
 22. Moving a tetromino moves the Game matrix area.
 23. When a tetromino collides with a row, the Game matrix area is shunted down for a second.
 
+## Control keys
+B: Drops Tetromino.
+Z: activates 'Zone mode'.
+left, right, down arrows: Movement controls.
+
 ## Known issues
 Must click on the stage area to enable movement.
