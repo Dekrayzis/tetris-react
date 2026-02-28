@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { collection, getDocs } from 'firebase/firestore';
+import { collection, getDocs, limit, orderBy, query } from 'firebase/firestore';
 import Tetris from './components/Tetris';
 import TitleScreen from './components/TitleScreen';
 import ScoreBoard from './components/ScoreBoard';
@@ -12,7 +12,7 @@ type HighScore = {
     id: string;
     name?: string;
     level?: number;
-    score?: number;
+    score: number;
 };
 
 const App = () => {
@@ -55,17 +55,36 @@ const App = () => {
     const { data: highScores = [] } = useQuery<HighScore[]>({
         queryKey: ['highscores'],
         queryFn: async () => {
-            const snapshot = await getDocs(collection(db, 'highscores'));
+            const highscoresQuery = query(
+                collection(db, 'highscores'),
+                orderBy('score', 'desc'),
+                limit(50)
+            );
+            const snapshot = await getDocs(highscoresQuery);
 
-            const aHighScores: HighScore[] = snapshot.docs.map((doc) => ({
-                ...doc.data(),
-                id: doc.id
-            })) as HighScore[];
+            const seen = new Set<string>();
+            const deduped: HighScore[] = [];
 
-            return aHighScores
-                .slice()
-                .sort((a, b) => (Number(b.score || 0) - Number(a.score || 0)))
-                .slice(0, 10);
+            for (const doc of snapshot.docs) {
+                const data = doc.data() as any;
+                const name = String(data?.name ?? '').trim();
+                const level = Number(data?.level ?? 0);
+                const score = Number(data?.score ?? 0);
+                const key = `${name}::${level}::${score}`;
+                if (seen.has(key)) continue;
+
+                seen.add(key);
+                deduped.push({
+                    id: doc.id,
+                    name: data?.name,
+                    level: data?.level,
+                    score,
+                });
+
+                if (deduped.length >= 10) break;
+            }
+
+            return deduped;
         },
         staleTime: 60_000,
     });
