@@ -355,3 +355,8 @@ tr {
   text-align: center;
   width: 52px;
 }
+
+.tetris-logo {
+  margin-left: 2%;
+  width: 40%;
+}

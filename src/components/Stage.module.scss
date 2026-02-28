@@ -1,0 +1,25 @@
+.stage {
+  display: grid;
+
+  grid-template-rows: repeat(
+    var(--stage-height),
+    calc(25vw / var(--stage-width))
+  );
+  grid-template-columns: repeat(var(--stage-width), 1fr);
+
+  grid-gap: 1px;
+
+  border: 2px solid var(--stage-frame, #0453d8);
+  border-top: 0;
+
+  width: 100%;
+  max-width: 25vw;
+  background: transparent;
+  margin: auto;
+  z-index: 99999999999999;
+
+  &:focus,
+  &:focus-visible {
+    outline: none;
+  }
+}

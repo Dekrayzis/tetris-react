@@ -5,19 +5,6 @@ module.exports = defineConfig(async () => {
 
   return {
     plugins: [react()],
-    optimizeDeps: {
-      exclude: ['public/index.html'],
-      esbuildOptions: {
-        loader: {
-          '.js': 'jsx',
-        },
-      },
-    },
-    esbuild: {
-      loader: 'jsx',
-      include: /src\/.*\.[jt]sx?$/,
-      exclude: [],
-    },
     server: {
       port: 5173,
     },
