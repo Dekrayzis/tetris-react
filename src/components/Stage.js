@@ -19,6 +19,11 @@ export const StyledStage = styled.div`
   margin: auto;
   z-index: 99999999999999;
 
+  &:focus,
+  &:focus-visible {
+    outline: none;
+  }
+
 `;
 
 const setPushDirection = (dir) => {
@@ -51,7 +56,7 @@ const setPushDirection = (dir) => {
  * @public 
  */
 const Stage = ({ stage, frameColor, pushDir }) => (
-    <StyledStage className={ setPushDirection(pushDir) } width={stage[0].length} height={stage.length} frame={frameColor} >
+    <StyledStage id="tetroBoard" tabIndex={-1} className={ `${setPushDirection(pushDir)}` } width={stage[0].length} height={stage.length} frame={frameColor} >
         { stage.map(row => row.map((cell, x) => <Cell key={x} type={cell[0]} />)) }
     </StyledStage>
 );

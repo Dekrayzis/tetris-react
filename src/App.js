@@ -1,9 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { collection, getDocs } from 'firebase/firestore';
 import Tetris from './components/Tetris';
 import TitleScreen from './components/TitleScreen';
 import ScoreBoard from './components/ScoreBoard';
 import { CanvasOverlay } from './components/styles/StyledCanvasScreen';
-import firebase from './firebase/config';
+import { db } from './firebase/config';
 
 const App = () => {
 
@@ -12,10 +14,9 @@ const App = () => {
     const [displayScores, setDisplayScores] = useState(false);
 
     // Array of high scores.
-    const [highScores, setHighScore] = useState([]);
     const iDelay = 10000;
 
-    let timeoutID;
+    const timeoutIDRef = useRef(null);
 
 
     /**
@@ -40,16 +41,18 @@ const App = () => {
      * Start the 'no input' timer.
      * @private
      */
-    const startTimer = () => {
-        
+    const goInactive = useCallback(() => {
+        setDisplayScores(true);
+    }, []);
+
+    const startTimer = useCallback(() => {
         if (!stageHasBegun) {
             // wait 10 seconds before calling goInactive
-            timeoutID = window.setTimeout(goInactive, iDelay);
+            timeoutIDRef.current = window.setTimeout(goInactive, iDelay);
         }
+    }, [goInactive, iDelay, stageHasBegun]);
 
-    };
-    
-    
+
     /**
      * Display title screen.
      * @private
@@ -61,91 +64,89 @@ const App = () => {
 
     };
 
-    
+
     /**
      * Reset the 'no input' timer.
      * @private
      */
-    const resetTimer = () => {
-
-        window.clearTimeout(timeoutID);    
+    const resetTimer = useCallback(() => {
+        if (timeoutIDRef.current) {
+            window.clearTimeout(timeoutIDRef.current);
+        }
         goActive();
-
-    };
+    }, [goActive]);
 
 
     /**
      * Display the high scores.
      * @private
      */
-    const goInactive = () => {
-        setDisplayScores(true); 
-    };
-    
-
     /**
      * Setup event handlers.
      * @private
      */
-    const setup = () => {
+    useEffect(() => {
+        if (stageHasBegun) {
+            return undefined;
+        }
 
-        document.getElementById("root").addEventListener('mousemove', event => {
-            resetTimer();
-        });
-        document.getElementById("root").addEventListener('mousedown', resetTimer, false);
-        document.getElementById("root").addEventListener('keypress', resetTimer, false);
-        document.getElementById("root").addEventListener('DOMMouseScroll', resetTimer, false);
-        document.getElementById("root").addEventListener('mousewheel', resetTimer, false);
-        document.getElementById("root").addEventListener('touchmove', resetTimer, false);
-        document.getElementById("root").addEventListener('MSPointerMove', resetTimer, false);
-    
+        const rootEl = document.getElementById('root');
+        if (!rootEl) {
+            return undefined;
+        }
+
+        const onMouseMove = () => resetTimer();
+
+        rootEl.addEventListener('mousemove', onMouseMove);
+        rootEl.addEventListener('mousedown', resetTimer, false);
+        rootEl.addEventListener('keypress', resetTimer, false);
+        rootEl.addEventListener('DOMMouseScroll', resetTimer, false);
+        rootEl.addEventListener('mousewheel', resetTimer, false);
+        rootEl.addEventListener('touchmove', resetTimer, false);
+        rootEl.addEventListener('MSPointerMove', resetTimer, false);
+
         startTimer();
 
-    };
+        return () => {
+            rootEl.removeEventListener('mousemove', onMouseMove);
+            rootEl.removeEventListener('mousedown', resetTimer, false);
+            rootEl.removeEventListener('keypress', resetTimer, false);
+            rootEl.removeEventListener('DOMMouseScroll', resetTimer, false);
+            rootEl.removeEventListener('mousewheel', resetTimer, false);
+            rootEl.removeEventListener('touchmove', resetTimer, false);
+            rootEl.removeEventListener('MSPointerMove', resetTimer, false);
 
-    // Initialise listerners.
-    setup();
+            if (timeoutIDRef.current) {
+                window.clearTimeout(timeoutIDRef.current);
+            }
+        };
+    }, [resetTimer, stageHasBegun, startTimer]);
 
-    /**
-     * Obtain highscores from database and set as a state property [highScores].
-     * @private
-     */
-    const ObtainHighScore = () => {
+    const { data: highScores = [] } = useQuery({
+        queryKey: ['highscores'],
+        queryFn: async () => {
+            const snapshot = await getDocs(collection(db, 'highscores'));
 
-        useEffect(() => {
+            const aHighScores = snapshot.docs.map(doc => ({
+                ...doc.data(),
+                id: doc.id
+            }));
 
-            const fetchData = async () => {
-
-                // Obtain data from the Google firebase database.
-                const firebaseDB = firebase.firestore();
-                const oData = await firebaseDB.collection("highscores").get();
-
-                let aHighScores = oData.docs.map(doc => ({
-                    ...doc.data(),
-                    id: doc.id
-                }));
-
-                // Sort by highest score and return only the first 10 highest scored players.
-                aHighScores.sort((a, b) => (a.score - b.score)).slice(0, 10);
-                setHighScore(aHighScores.reverse());
-
-            };
-            fetchData();
-        }, []);
-
-    };
-
-    // Grab the current highest scores on component load.
-    ObtainHighScore();
+            aHighScores.sort((a, b) => (a.score - b.score)).slice(0, 10);
+            return aHighScores.reverse();
+        },
+        staleTime: 60_000,
+    });
 
     return (
         <div className="App">
             {
                 stageHasBegun ? (
-                    <Tetris backToMain={showTitleScreen} dataBase={firebase} highScores={highScores} />
+                    <Tetris backToMain={showTitleScreen} highScores={highScores} />
                 ) : <TitleScreen start={startGame} />
             }
-            { 
+
+            {
                 !stageHasBegun && displayScores ? (
                     <CanvasOverlay display={displayScores ? '0.98' : '0'} depth={displayScores ? '5' : '-1'}>
                         <ScoreBoard scoreList={highScores} />

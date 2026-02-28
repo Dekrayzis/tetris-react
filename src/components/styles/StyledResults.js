@@ -2,7 +2,7 @@ import styled from 'styled-components';
 
 // Grid layout.
 export const StyledResults = styled.div`
-  color: white
+  color: white;
   display: block;
   width: 30%;
   margin-right: 1rem;
@@ -30,14 +30,12 @@ export const StyledResults = styled.div`
         margin-bottom: 0.3rem;
         padding: 0.25rem 1.25rem;
         font-size: 1.2rem;
+        color: wheat;
       }
       
       .scoreText {
         color: wheat;
       }
-
-    }
-  
+    }  
   }
-
 `;

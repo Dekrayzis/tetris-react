@@ -2,8 +2,9 @@
  * Main Tetris game logic
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import UIfx from 'uifx';
+import { addDoc, collection } from 'firebase/firestore';
 
 // Helpers & styles
 import { numberWithCommas } from '../util';
@@ -12,13 +13,14 @@ import { StyledTetrisWrapper, StyledTetris } from './styles/StyledTetris';
 import { CanvasOverlay } from './styles/StyledCanvasScreen';
 import GameArea from './GameArea';
 import levelData from '../data/levels';
+import { db } from '../firebase/config';
 
 // Custom Hooks
 import { useInterval } from '../hooks/useInterval';
 import { usePlayer } from '../hooks/usePlayer';
 import { useStage } from '../hooks/useStage';
 import { useGameStatus } from '../hooks/useGameStatus';
-import { musicPlayer, stopAudio } from '../hooks/useMusicPlayer';
+import { musicPlayer, stopAudio, fadeMasterAudio } from '../hooks/useMusicPlayer';
 import { useZoneProgress } from '../hooks/useZoneProgress';
 
 // Components
@@ -29,17 +31,21 @@ import GameOverDialog from './GameOverDialog';
 import CompletedText from './CompletedText';
 
 // fx
-import sfxCollided from '../data/sfx/collided.wav';
+import { sfx_Collided, sfx_GameOver } from '../config/config';
 
 // SFX
-const fxCollide = new UIfx(sfxCollided, {
+const fxCollide = new UIfx(sfx_Collided, {
     volume: 0.5 // value must be between 0.0 ⇔ 1.0
+});
+
+const fxGameOver = new UIfx(sfx_GameOver, {
+    volume: 0.7
 });
 
 let iDropIntervalTime = 500;
 let iZoneTimer = 6000;
 
-const Tetris = ({ backToMain, dataBase, highScores }) => {
+const Tetris = ({ backToMain, highScores }) => {
 
     // Music track instances.
     const [trackInstance1, setTrackInstance1] = useState(null);
@@ -100,11 +106,9 @@ const Tetris = ({ backToMain, dataBase, highScores }) => {
     const [iZoneRows, setZoneRows, iHeight, setHeight] = useZoneProgress(rowsCleared, bZoneActivated);
     const [iZoneInterval, setZoneInterval] = useState(null);
 
-
     // Player stats
     const [playerHighScore, setPlayerHighScore] = useState(0);
     const [iScore, setScore, iRows, setRows, iLevel, setLevel, showTetrisBadge, tetrisBadgeText, shakeScreen, setShake] = useGameStatus(rowsCleared, setScoreIndicator, setZoneProgress, bZoneActivated);
-
 
     /**
      * Moves the Tetronimo around the playing field.
@@ -112,14 +116,13 @@ const Tetris = ({ backToMain, dataBase, highScores }) => {
      * @param {float} f_Dir - screen position of tetronimo.
      * @private
      */
-    const movePlayer = f_Dir => {
+    const movePlayer = useCallback((f_Dir) => {
 
         if (!checkCollision(player, stage, { x: f_Dir, y: 0 })) {
             updatePlayerPos({ x: f_Dir, y: 0 });
         }
 
-    };
-
+    }, [player, stage, updatePlayerPos]);
 
     /**
      * Changes the fall speed of the tetromino.
@@ -143,7 +146,6 @@ const Tetris = ({ backToMain, dataBase, highScores }) => {
 
     };
 
-
     /**
      * Sets the current level data.
      * @private
@@ -155,7 +157,7 @@ const Tetris = ({ backToMain, dataBase, highScores }) => {
             if (idx === iLevel) {
 
                 setLevelData(oLevelItem);
-                setLevel(oLevelItem.levelNum);
+                setSpeedLevel(oLevelItem.levelNum);
 
                 musicPlayer(
                     setTrackInstance1, 
@@ -171,12 +173,11 @@ const Tetris = ({ backToMain, dataBase, highScores }) => {
 
     };
 
-
     /**
      * Starts the game.
      * @private
      */
-    const startLevel = () => {
+    const startLevel = useCallback(() => {
 
         if (!hasLevelBegun && iLevel < levelData.length) {
 
@@ -188,7 +189,7 @@ const Tetris = ({ backToMain, dataBase, highScores }) => {
             setTotalSeconds(0);
             setGameTime("00:00");
             setElapsedInterval(1000);
-            setDropTime(iDropIntervalTime);
+            setDropTime(iDropIntervalTime / (iLevel + 1));
 
             // Reset player values
             resetPlayer();
@@ -214,8 +215,42 @@ const Tetris = ({ backToMain, dataBase, highScores }) => {
 
         }
 
-    };
+    }, [hasLevelBegun, iLevel, iScore, playerHighScore, resetPlayer, setLevel, setRows, setScore, setStage, createStage]);
 
+    useEffect(() => {
+        startLevel();
+    }, [startLevel]);
+
+    useEffect(() => {
+        if (gameOver || showGameOverScreen || showResultsScreen) {
+            return;
+        }
+
+        const focusBoard = () => {
+            try {
+                const el = document.getElementById('tetroBoard');
+                if (!el) {
+                    requestAnimationFrame(focusBoard);
+                    return;
+                }
+                if (typeof el.focus === 'function') {
+                    el.focus();
+                }
+            } catch (e) {
+                // ignore
+            }
+        };
+
+        requestAnimationFrame(focusBoard);
+    }, [gameOver, showGameOverScreen, showResultsScreen]);
+
+    useEffect(() => {
+
+        if (showResultsScreen) {
+            fadeMasterAudio(0, 2000);
+        }
+
+    }, [showResultsScreen]);
 
     /**
      * Called to move the tetromino down the screen.
@@ -225,8 +260,6 @@ const Tetris = ({ backToMain, dataBase, highScores }) => {
 
         // Level is completed...
         if (iRows >= getLevelData.completionLines) {
-
-            stopAudio(trackInstance1, 1000);
 
             // Display results.
             setResultsScreen(true);
@@ -272,6 +305,10 @@ const Tetris = ({ backToMain, dataBase, highScores }) => {
 
                 setGameOver(true);
 
+                stopAudio(trackInstance1, 0, { immediate: true, stopAll: true });
+                stopAudio(trackInstance2, 0, { immediate: true, stopAll: true });
+                fxGameOver.play();
+
                 setGameOverScreen(true);
                 setDropTime(null);
 
@@ -304,7 +341,6 @@ const Tetris = ({ backToMain, dataBase, highScores }) => {
 
     };
 
-
     /**
      * Checks if the new score is greater than the current highscore.
      * 
@@ -327,7 +363,6 @@ const Tetris = ({ backToMain, dataBase, highScores }) => {
 
     };
 
-
     /**
      * Submits new Highscore to the database.
      * @private
@@ -336,8 +371,7 @@ const Tetris = ({ backToMain, dataBase, highScores }) => {
 
         if (playerName !== "" && playerName.length > 2) {
 
-            const firebaseDB = dataBase.firestore();
-            firebaseDB.collection("highscores").add({
+            addDoc(collection(db, 'highscores'), {
                 name: playerName,
                 level: iLevel,
                 score: playerHighScore
@@ -349,7 +383,6 @@ const Tetris = ({ backToMain, dataBase, highScores }) => {
         }
 
     };
-
 
     /**
      * Triggered when the player pressed the down arrow.
@@ -363,18 +396,15 @@ const Tetris = ({ backToMain, dataBase, highScores }) => {
 
     };
 
-
     // Tetromino drop interval timer.
     useInterval(() => {
         drop();
     }, dropTime);
 
-
     // Game interval timer.
     useInterval(() => {
         GameTimer();
     }, GameElapsedTime);
-
 
     /**
      * Rapidly drops the Tetronimino.
@@ -389,7 +419,6 @@ const Tetris = ({ backToMain, dataBase, highScores }) => {
         drop();
 
     };
-
 
     /**
      * Player control.
@@ -449,7 +478,6 @@ const Tetris = ({ backToMain, dataBase, highScores }) => {
 
     };
 
-
     /**
      * Counts down the timer for when 'Zone' is active.
      * @private
@@ -478,17 +506,14 @@ const Tetris = ({ backToMain, dataBase, highScores }) => {
 
     };
 
-
     useInterval(() => {
         zoneTimer();
     }, iZoneInterval);
-
 
     const resetZoneTimer = () => {
         iZoneTimer = 6000;
     };
 
-    
     /**
      * Game timer.
      * @private
@@ -516,7 +541,6 @@ const Tetris = ({ backToMain, dataBase, highScores }) => {
 
     };
 
-
     /**
      * Trigger for advancing to the next level.
      * @private
@@ -527,12 +551,14 @@ const Tetris = ({ backToMain, dataBase, highScores }) => {
         setLevelStarted(false);
         setShake(false);
 
-        // Increase the level counter
+        // Make sure the previous level track is fully stopped before starting the next level.
+        stopAudio(trackInstance1, 0, { immediate: true, stopAll: true });
+        stopAudio(trackInstance2, 0, { immediate: true, stopAll: true });
+
+        // Increase the level counter; startLevel runs via useEffect after iLevel updates.
         setLevel(prev => prev + 1);
-        startLevel();
 
     };
-
 
     /**
      * Trigger for advancing to the next level.
@@ -544,13 +570,13 @@ const Tetris = ({ backToMain, dataBase, highScores }) => {
         setLevelComplete(false);
         setLevelStarted(false);
         setGameOverScreen(false);
-        stopAudio(trackInstance1, 500, 10);
+        stopAudio(trackInstance1, 0, { immediate: true, stopAll: true });
+        stopAudio(trackInstance2, 0, { immediate: true, stopAll: true });
 
         // Restart previous game.
         startLevel();
 
     };
-
 
     /**
      * Quits the game and returns to title screen.
@@ -558,7 +584,8 @@ const Tetris = ({ backToMain, dataBase, highScores }) => {
      */
     const quitGame = () => {
         
-        stopAudio(trackInstance1, 1000, 50);
+        stopAudio(trackInstance1, 0, { immediate: true, stopAll: true });
+        stopAudio(trackInstance2, 0, { immediate: true, stopAll: true });
         backToMain();
 
     };
@@ -608,7 +635,7 @@ const Tetris = ({ backToMain, dataBase, highScores }) => {
                             showScoreIndicator={scoreIndicator}
                             highScore={playerHighScore}
                             shunt={iPushIdx}
-                            zoneProgress={iZoneProgress > 100 ? setZoneProgress(100) : iZoneProgress }
+                            zoneProgress={iZoneProgress > 100 ? 100 : iZoneProgress }
                             zoneColor={getLevelData.frame}
                             stageComplete={isLevelComplete}
                             zoneRowCount={iZoneRows}
@@ -624,7 +651,7 @@ const Tetris = ({ backToMain, dataBase, highScores }) => {
                                 Your browser does not support the video tag.
                             </video> */}
                     </StyledTetris>
-                ) : startLevel()
+                ) : null
             }
         </StyledTetrisWrapper>
     );
