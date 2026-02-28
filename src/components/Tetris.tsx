@@ -141,8 +141,8 @@ const Tetris: React.FC<Props> = ({ backToMain, highScores }) => {
    * TODO: if these already exist in your file, paste them back in.
    */
   const resetZoneTimer = useCallback(() => {
-    // TODO: implement your existing reset logic (you had iZoneTimer global before)
-  }, []);
+    setZoneProgress(100);
+  }, [setZoneProgress]);
 
   const GameTimer = useCallback(() => {
     setTotalSeconds((prev) => {
@@ -211,6 +211,13 @@ const Tetris: React.FC<Props> = ({ backToMain, highScores }) => {
     if (!hasLevelBegun && iLevel < levelData.length) {
       setResultsScreen(false);
 
+      // Reset zone state
+      setZoneActive(false);
+      resetZoneTimer();
+      setZoneInterval(null);
+      setZoneRows(0);
+      setHeight(0);
+
       setStage(createStage());
       setCurrentLevel();
 
@@ -247,11 +254,14 @@ const Tetris: React.FC<Props> = ({ backToMain, highScores }) => {
     iScore,
     playerHighScore,
     resetPlayer,
+    resetZoneTimer,
     setCurrentLevel,
     setLevel,
     setRows,
     setScore,
     setStage,
+    setZoneRows,
+    setHeight,
   ]);
 
   useEffect(() => {
