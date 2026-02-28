@@ -4,6 +4,8 @@ import { Howl } from 'howler';
 import Button from './Button';
 import TitleBackdrop from './TitleBackdrop';
 
+import { isMuted } from '../util/isMuted';
+
 import themeMusic from '../data/music/themeMusic.mp3';
 
 const StyledScreen = styled.div`
@@ -60,6 +62,11 @@ const TitleScreen = ({start}) => {
         });
 
         titleMusicRef.current = sound;
+        try {
+            sound.mute(isMuted());
+        } catch {
+            // ignore
+        }
         sound.play();
 
         return () => {

@@ -1,9 +1,11 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { collection, getDocs, limit, orderBy, query } from 'firebase/firestore';
+import { Howler } from 'howler';
 import Tetris from './components/Tetris';
 import TitleScreen from './components/TitleScreen';
 import ScoreBoard from './components/ScoreBoard';
+import SoundToggle from './components/SoundToggle';
 import { CanvasOverlay } from './components/styles/StyledCanvasScreen';
 import { db } from './firebase/config';
 import { useInactivityTimeout } from './hooks/useInactivityTimeout';
@@ -16,6 +18,14 @@ type HighScore = {
 };
 
 const App = () => {
+
+    const [muted, setMuted] = useState(() => {
+        try {
+            return localStorage.getItem('tetris-react:muted') === '1';
+        } catch {
+            return false;
+        }
+    });
 
     // Display gameboard
     const [stageHasBegun, setStartGame] = useState(false);
@@ -36,6 +46,15 @@ const App = () => {
     const showTitleScreen = useCallback(() => {
         setStartGame(false);
     }, []);
+
+    useEffect(() => {
+        Howler.mute(muted);
+        try {
+            localStorage.setItem('tetris-react:muted', muted ? '1' : '0');
+        } catch {
+            // ignore
+        }
+    }, [muted]);
 
     useInactivityTimeout({
         enabled: !stageHasBegun && !displayScores,
@@ -95,10 +114,10 @@ const App = () => {
 
     return (
         <div className="App">
+            <SoundToggle muted={muted} onToggle={() => setMuted((prev) => !prev)} />
             {stageHasBegun
                 ? <Tetris backToMain={showTitleScreen} highScores={highScores} />
                 : <TitleScreen start={startGame} />}
-
             {shouldShowScores && (
                 <CanvasOverlay $opacity={overlayOpacity} $depth={overlayDepth}>
                     <ScoreBoard scoreList={highScores} />

@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import UIfx from 'uifx';
 
 import sfxBreak from '../data/sfx/break.wav';
+import { isMuted } from '../util/isMuted';
 
 const LINE_POINTS = [40, 100, 300, 700, 1200, 1500] as const;
 
@@ -88,7 +89,7 @@ export const useGameStatus = (
         setRows(prev => prev + rowsCleared);
 
         setShake(true);
-        fxBreak.play();
+        if (!isMuted()) fxBreak.play();
 
         if (shakeTimeoutRef.current != null) {
             window.clearTimeout(shakeTimeoutRef.current);

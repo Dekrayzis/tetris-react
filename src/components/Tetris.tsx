@@ -8,11 +8,8 @@ import UIfx from 'uifx';
 import { addDoc, collection } from 'firebase/firestore';
 
 // Helpers & styles
-import { numberWithCommas } from '../util';
 import { createStage, checkCollision } from '../gameHelpers';
 import { StyledTetrisWrapper, StyledTetris } from './styles/StyledTetris';
-import { CanvasOverlay } from './styles/StyledCanvasScreen';
-import GameArea from './GameArea';
 import levelData from '../data/levels';
 import { db } from '../firebase/config';
 
@@ -22,15 +19,15 @@ import { usePlayer } from '../hooks/usePlayer';
 import { useStage } from '../hooks/useStage';
 import { useGameStatus } from '../hooks/useGameStatus';
 import { musicPlayer, stopAudio, fadeMasterAudio } from '../hooks/useMusicPlayer';
-import { useZoneProgress } from '../hooks/useZoneProgress';
+import { useGameTimer } from '../hooks/useGameTimer';
+import { useZone } from '../hooks/useZone';
+import { useTetrisControls } from '../hooks/useTetrisControls';
+import { isMuted } from '../util/isMuted';
 
 // Components
-import Stage from './Stage';
-import NameBox from './NameBox';
-import DialogResults from './DialogResults';
-import GameOverDialog from './GameOverDialog';
 import CompletedText from './CompletedText';
-import HowToPlayDialog from './HowToPlayDialog';
+import TetrisOverlays from './TetrisOverlays';
+import TetrisGameArea from './TetrisGameArea';
 
 // fx
 import { sfx_Collided, sfx_GameOver } from '../config/config';
@@ -69,14 +66,15 @@ const Tetris: React.FC<Props> = ({ backToMain, highScores }) => {
   const [trackInstance1, setTrackInstance1] = useState<any>(null);
   const [trackInstance2, setTrackInstance2] = useState<any>(null);
 
-  // Sets the total elapsed seconds.
-  const [totalSeconds, setTotalSeconds] = useState(0);
-
   // Move grid space [0 = static or up, 1 = right, 2 = down, 3 = left]
   const [iPushIdx, setPushIdx] = useState(0);
 
-  // Game interval time.
-  const [gameElapsedTime, setElapsedInterval] = useState<number | null>(null);
+  const {
+    elapsedTime: elapsedGameTime,
+    pause: pauseGameTimer,
+    reset: resetGameTimer,
+    resume: resumeGameTimer,
+  } = useGameTimer();
 
   // Is level completed ?
   const [isLevelComplete, setLevelComplete] = useState(false);
@@ -93,9 +91,6 @@ const Tetris: React.FC<Props> = ({ backToMain, highScores }) => {
 
   // used for boosting the Tetromino downwards.
   const [userBombDrop, setBombDrop] = useState(false);
-
-  // Game time string.
-  const [elapsedGameTime, setGameTime] = useState('00:00');
 
   // Display/hide the new highscore dialog window.
   const [displayNameBox, setDisplayNameBox] = useState(false);
@@ -114,13 +109,30 @@ const Tetris: React.FC<Props> = ({ backToMain, highScores }) => {
   const [showResultsScreen, setResultsScreen] = useState(false);
 
   // In the zone
-  const [iZoneProgress, setZoneProgress] = useState(100);
   const [bZoneActivated, setZoneActive] = useState(false);
-  const [iZoneInterval, setZoneInterval] = useState<number | null>(null);
 
   const [player, updatePlayerPos, resetPlayer, playerRotate] = usePlayer();
   const [stage, setStage, rowsCleared] = useStage(player, resetPlayer, bZoneActivated);
-  const [iZoneRows, setZoneRows, iHeight, setHeight] = useZoneProgress(rowsCleared, bZoneActivated);
+
+  const zone = useZone({
+    rowsCleared,
+    onPauseGameTimer: pauseGameTimer,
+    onResumeGameTimer: () => resumeGameTimer(1000),
+  });
+
+  const {
+    zoneProgress: iZoneProgress,
+    setZoneProgress,
+    zoneActive,
+    activateZone,
+    resetZone,
+    zoneRowCount: iZoneRows,
+    zoneRowHeight: iHeight,
+  } = zone;
+
+  useEffect(() => {
+    setZoneActive(zoneActive);
+  }, [zoneActive]);
 
   // Player stats
   const [playerHighScore, setPlayerHighScore] = useState(0);
@@ -138,27 +150,6 @@ const Tetris: React.FC<Props> = ({ backToMain, highScores }) => {
   ] = useGameStatus(rowsCleared, setScoreIndicator, setZoneProgress);
 
   /**
-   * TODO: if these already exist in your file, paste them back in.
-   */
-  const resetZoneTimer = useCallback(() => {
-    setZoneProgress(100);
-  }, [setZoneProgress]);
-
-  const GameTimer = useCallback(() => {
-    setTotalSeconds((prev) => {
-      const next = prev + 1;
-      const minutes = Math.floor(next / 60);
-      const seconds = next % 60;
-
-      const mm = String(minutes).padStart(2, '0');
-      const ss = String(seconds).padStart(2, '0');
-      setGameTime(`${mm}:${ss}`);
-
-      return next;
-    });
-  }, []);
-
-  /**
    * Moves the Tetronimo around the playing field.
    */
   const movePlayer = useCallback(
@@ -169,20 +160,6 @@ const Tetris: React.FC<Props> = ({ backToMain, highScores }) => {
     },
     [player, stage, updatePlayerPos]
   );
-
-  /**
-   * Changes the fall speed of the tetromino.
-   */
-  const keyUp = ({ keyCode }: { keyCode: number }) => {
-    if (showHowToPlay) return;
-    if (gameOver) return;
-
-    if (keyCode === 40) {
-      setDropTime(iDropIntervalTime / (iLevel + 1));
-    }
-
-    setPushIdx(0);
-  };
 
   /**
    * Sets the current level data.
@@ -212,19 +189,14 @@ const Tetris: React.FC<Props> = ({ backToMain, highScores }) => {
       setResultsScreen(false);
 
       // Reset zone state
-      setZoneActive(false);
-      resetZoneTimer();
-      setZoneInterval(null);
-      setZoneRows(0);
-      setHeight(0);
+      resetZone();
 
       setStage(createStage());
       setCurrentLevel();
 
       // Reset time values
-      setTotalSeconds(0);
-      setGameTime('00:00');
-      setElapsedInterval(1000);
+      resetGameTimer();
+      resumeGameTimer(1000);
       setDropTime(iDropIntervalTime / (iLevel + 1));
 
       // Reset player values
@@ -244,7 +216,7 @@ const Tetris: React.FC<Props> = ({ backToMain, highScores }) => {
     // Game complete.
     if (iLevel > levelData.length) {
       setDropTime(null);
-      setElapsedInterval(null);
+      pauseGameTimer();
       setLevelComplete(true);
       setLevelStarted(false);
     }
@@ -254,14 +226,15 @@ const Tetris: React.FC<Props> = ({ backToMain, highScores }) => {
     iScore,
     playerHighScore,
     resetPlayer,
-    resetZoneTimer,
+    pauseGameTimer,
+    resetGameTimer,
+    resumeGameTimer,
     setCurrentLevel,
     setLevel,
     setRows,
     setScore,
     setStage,
-    setZoneRows,
-    setHeight,
+    resetZone,
   ]);
 
   useEffect(() => {
@@ -276,7 +249,7 @@ const Tetris: React.FC<Props> = ({ backToMain, highScores }) => {
 
     didPauseForHowToPlayRef.current = true;
     setDropTime(null);
-    setElapsedInterval(null);
+    pauseGameTimer();
   }, [hasLevelBegun, showHowToPlay]);
 
   // Refocus board when no overlays are open
@@ -340,11 +313,8 @@ const Tetris: React.FC<Props> = ({ backToMain, highScores }) => {
    * User requests zone to be activated.
    */
   const shouldActivateZone = useCallback(() => {
-    if (!bZoneActivated && iZoneProgress === 100) {
-      setZoneActive(true);
-      setZoneInterval(178);
-    }
-  }, [bZoneActivated, iZoneProgress]);
+    activateZone();
+  }, [activateZone]);
 
   /**
    * Called to move the tetromino down the screen.
@@ -355,14 +325,10 @@ const Tetris: React.FC<Props> = ({ backToMain, highScores }) => {
       setResultsScreen(true);
       setLevelComplete(true);
       setDropTime(null);
-      setElapsedInterval(null);
+      pauseGameTimer();
 
       // Reset zone
-      setZoneActive(false);
-      resetZoneTimer();
-      setZoneInterval(null);
-      setZoneRows(0);
-      setHeight(0);
+      resetZone();
 
       return;
     }
@@ -379,18 +345,18 @@ const Tetris: React.FC<Props> = ({ backToMain, highScores }) => {
 
       stopAudio(trackInstance1, 0, { immediate: true, stopAll: true });
       stopAudio(trackInstance2, 0, { immediate: true, stopAll: true });
-      fxGameOver.play();
+      if (!isMuted()) fxGameOver.play();
 
       setGameOverScreen(true);
       setDropTime(null);
-      setElapsedInterval(null);
+      pauseGameTimer();
       ShouldStoreHighScore();
       return;
     }
 
     updatePlayerPos({ x: 0, y: 0, collided: true });
 
-    fxCollide.play();
+    if (!isMuted()) fxCollide.play();
     setPushIdx(2);
     setTimeout(() => setPushIdx(0), 100);
 
@@ -401,18 +367,17 @@ const Tetris: React.FC<Props> = ({ backToMain, highScores }) => {
   }, [
     ShouldStoreHighScore,
     getLevelData.completionLines,
+    pauseGameTimer,
     iLevel,
     iRows,
     isLevelComplete,
     player,
-    resetZoneTimer,
     stage,
     trackInstance1,
     trackInstance2,
     updatePlayerPos,
     userBombDrop,
-    setZoneRows,
-    setHeight,
+    resetZone,
   ]);
 
   /**
@@ -432,34 +397,30 @@ const Tetris: React.FC<Props> = ({ backToMain, highScores }) => {
     drop();
   }, [drop]);
 
-  /**
-   * Player control.
-   */
-  const move = useCallback(
-    ({ keyCode }: { keyCode: number }) => {
-      if (showHowToPlay) return;
-      if (gameOver) return;
-      if (isLevelComplete) return;
-
-      if (keyCode === 37) {
-        movePlayer(-1);
-        setPushIdx(3);
-      } else if (keyCode === 39) {
-        movePlayer(1);
-        setPushIdx(1);
-      } else if (keyCode === 40) {
-        dropPlayer();
-        setPushIdx(2);
-      } else if (keyCode === 38) {
-        playerRotate(stage, 1);
-      } else if (keyCode === 66) {
-        bombDrop();
-      } else if (keyCode === 90) {
-        shouldActivateZone();
-      }
+  const controls = useTetrisControls({
+    showHowToPlay,
+    gameOver,
+    isLevelComplete,
+    onMoveLeft: () => {
+      movePlayer(-1);
+      setPushIdx(3);
     },
-    [bombDrop, dropPlayer, gameOver, isLevelComplete, movePlayer, playerRotate, shouldActivateZone, showHowToPlay, stage]
-  );
+    onMoveRight: () => {
+      movePlayer(1);
+      setPushIdx(1);
+    },
+    onSoftDrop: () => {
+      dropPlayer();
+      setPushIdx(2);
+    },
+    onRotate: () => playerRotate(stage, 1),
+    onBombDrop: bombDrop,
+    onActivateZone: shouldActivateZone,
+    onKeyUpDownArrow: () => {
+      setDropTime(iDropIntervalTime / (iLevel + 1));
+      setPushIdx(0);
+    },
+  });
 
   /**
    * Advance to next level (your snippet had this logic “loose”)
@@ -506,7 +467,7 @@ const Tetris: React.FC<Props> = ({ backToMain, highScores }) => {
     }
     setShowHowToPlay(false);
 
-    setElapsedInterval(1000);
+    resumeGameTimer(1000);
     setDropTime(iDropIntervalTime / (iLevel + 1));
 
     let attempts = 0;
@@ -523,62 +484,37 @@ const Tetris: React.FC<Props> = ({ backToMain, highScores }) => {
     };
 
     window.requestAnimationFrame(focusBoard);
-  }, [iLevel]);
+  }, [iLevel, resumeGameTimer]);
 
   // Timers
   useInterval(() => drop(), dropTime);
-  useInterval(() => GameTimer(), gameElapsedTime);
-  useInterval(() => {
-    // Zone timer tick (if you previously had zoneTimer using iZoneTimer global)
-    if (!bZoneActivated || iZoneInterval == null) return;
-
-    setZoneProgress((prev) => {
-      const next = prev - 1;
-      if (next <= 0) {
-        setZoneActive(false);
-        resetZoneTimer();
-        setZoneInterval(null);
-        setElapsedInterval(1000);
-        setZoneRows(0);
-        setHeight(0);
-        return 0;
-      }
-      setElapsedInterval(null);
-      return next;
-    });
-  }, iZoneInterval);
 
   return (
-    <StyledTetrisWrapper role="button" tabIndex={0} onKeyDown={(e: any) => move(e)} onKeyUp={keyUp}>
+    <StyledTetrisWrapper role="button" tabIndex={0} onKeyDown={(e: any) => controls.onKeyDown(e)} onKeyUp={controls.onKeyUp}>
       {isLevelComplete && getLevelData.levelNum === 7 ? <CompletedText title="COMPLETED GAME" quit={quitGame} /> : null}
 
       {hasLevelBegun ? (
         <StyledTetris>
-          {showHowToPlay ? (
-            <CanvasOverlay $opacity={0.6} $depth={6}>
-              <HowToPlayDialog onOk={acknowledgeHowToPlay} />
-            </CanvasOverlay>
-          ) : null}
+          <TetrisOverlays
+            showHowToPlay={showHowToPlay}
+            showResultsScreen={showResultsScreen}
+            showGameOverScreen={showGameOverScreen}
+            gameOver={gameOver}
+            isLevelComplete={isLevelComplete}
+            zoneActive={zoneActive}
+            linesCleared={iRows}
+            speedLvl={speedLevel}
+            time={elapsedGameTime}
+            score={iScore}
+            onContinue={continueGame}
+            onQuit={quitGame}
+            onRetry={replayPrevGame}
+            onAcknowledgeHowToPlay={acknowledgeHowToPlay}
+          />
 
-          {!bZoneActivated && isLevelComplete ? (
-            <CanvasOverlay $opacity={showResultsScreen ? 0.98 : 0} $depth={showResultsScreen ? 5 : -1}>
-              <DialogResults
-                linesCleared={iRows}
-                speedLvl={speedLevel}
-                time={elapsedGameTime}
-                score={numberWithCommas(iScore)}
-                callback={continueGame}
-              />
-            </CanvasOverlay>
-          ) : null}
-
-          {gameOver ? (
-            <CanvasOverlay $opacity={showGameOverScreen ? 0.98 : 0} $depth={showGameOverScreen ? 5 : -1}>
-              <GameOverDialog title="Game Over" quit={quitGame} retry={replayPrevGame} />
-            </CanvasOverlay>
-          ) : null}
-
-          <GameArea
+          <TetrisGameArea
+            stage={stage}
+            frameColor={getLevelData.frame}
             shake={shakeScreen}
             badgeTxt={tetrisBadgeText}
             speedLvl={speedLevel}
@@ -594,13 +530,13 @@ const Tetris: React.FC<Props> = ({ backToMain, highScores }) => {
             zoneColor={getLevelData.frame}
             stageComplete={isLevelComplete}
             zoneRowCount={iZoneRows}
-            zoneRowHeight={bZoneActivated ? iHeight : 0}
-          >
-            <Stage stage={stage as any} frameColor={getLevelData.frame} />
-            {displayNameBox ? (
-              <NameBox name={playerName} score={playerHighScore} setName={setPlayerName} callback={SubmitNewHighScore} />
-            ) : null}
-          </GameArea>
+            zoneRowHeight={zoneActive ? iHeight : 0}
+            displayNameBox={displayNameBox}
+            playerName={playerName}
+            playerHighScore={playerHighScore}
+            setPlayerName={setPlayerName}
+            onSubmitHighScore={SubmitNewHighScore}
+          />
         </StyledTetris>
       ) : null}
     </StyledTetrisWrapper>

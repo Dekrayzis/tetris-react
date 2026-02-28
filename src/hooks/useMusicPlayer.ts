@@ -1,4 +1,5 @@
 import { Howl, Howler } from 'howler';
+import { isMuted } from '../util/isMuted';
 
 export type TrackInstance = Howl | null;
 type TimeoutId = ReturnType<typeof window.setTimeout>;
@@ -117,7 +118,9 @@ export const fadeMasterAudio = (toVolume: number = 0, fadeDuration: number = 200
     swallow(() => {
         clearPendingMasterFadeTimers();
 
-        Howler.mute(false);
+        if (!isMuted()) {
+            Howler.mute(false);
+        }
 
         // Manual stepped fade. This is more reliable than Howler.fade() across
         // different audio routes and avoids abrupt cuts.
@@ -169,8 +172,8 @@ export const resetMasterAudio = (): void => {
     swallow(() => {
         clearPendingMasterFadeTimers();
 
-        Howler.mute(false);
         Howler.volume(1);
+        Howler.mute(isMuted());
     });
 };
 
