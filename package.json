@@ -20,6 +20,9 @@
     "styled-components": "^6.0.0",
     "uifx": "^2.0.7"
   },
+  "overrides": {
+    "undici": "^6.24.0"
+  },
   "devDependencies": {
     "@types/react": "^18.0.0",
     "@types/react-dom": "^18.0.0",
